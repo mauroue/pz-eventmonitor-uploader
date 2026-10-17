@@ -19,15 +19,32 @@ if ($Url -eq "") {
         try { $Url = (Get-Content $cfg -Raw).Trim() } catch { $Url = "" }
     }
 }
+# destino SEMPRE do endpoint.txt (definido pelo servidor no jogo);
+# -Url divergente bloqueia (consentimento esta ligado a URL do servidor)
+if ($Url -ne "" -and $Url -ne (Get-Endpoint)) {
+    Write-Host "BLOQUEADO: -Url diverge do endpoint definido pelo servidor (endpoint.txt)"
+    $Url = ""
+}
+if ($Url -eq "") { $Url = Get-Endpoint }
 
 $Shots = Join-Path $env:USERPROFILE "Zomboid\Screenshots"
-# Arquivo de consentimento gravado pelo MOD (popup F8) — sem ele, NADA e enviado.
+# Arquivos gravados pelo MOD no jogo (Zomboid\Lua\EventMonitor\):
+#   endpoint.txt -> URL de upload definida pelo SERVIDOR em que o jogador esta
+#   consent.txt  -> "yes|<url>" (aceito PARA essa url) ou "no"
+# Envio so acontece se consent.txt for "yes|" + EXATAMENTE a url do endpoint.txt.
 $ConsentFile = Join-Path $env:USERPROFILE "Zomboid\Lua\EventMonitor\consent.txt"
+$EndpointFile = Join-Path $env:USERPROFILE "Zomboid\Lua\EventMonitor\endpoint.txt"
 
-function Test-Consent {
+function Get-Endpoint {
+    if (-not (Test-Path $EndpointFile)) { return "" }
+    try { return (Get-Content $EndpointFile -Raw).Trim() } catch { return "" }
+}
+
+function Test-Consent([string]$target) {
+    if ([string]::IsNullOrEmpty($target)) { return $false }
     if (-not (Test-Path $ConsentFile)) { return $false }
     try {
-        return ((Get-Content $ConsentFile -Raw).Trim().ToLower() -eq "yes")
+        return ((Get-Content $ConsentFile -Raw).Trim().ToLower() -eq ("yes|" + $target.ToLower()))
     } catch { return $false }
 }
 if (-not (Test-Path $Shots)) { New-Item -ItemType Directory -Path $Shots | Out-Null }
@@ -51,8 +68,8 @@ while ($true) {
             Write-Host ("[teste] novo: {0} ({1} bytes)" -f $f.Name, $f.Length)
             continue
         }
-        if (-not (Test-Consent)) {
-            Write-Host ("ignorado (sem consentimento yes em Zomboid\Lua\EventMonitor\consent.txt): {0}" -f $f.Name)
+        if (-not (Test-Consent $Url)) {
+            Write-Host ("ignorado (consentimento 'yes|<url>' nao confere com o endpoint atual): {0}" -f $f.Name)
             continue
         }
         try {
